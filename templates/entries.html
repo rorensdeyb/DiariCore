@@ -14,8 +14,9 @@
     <link href="dashboard.css" rel="stylesheet">
     <link href="write-entry.css" rel="stylesheet">
     <link href="entry-view.css" rel="stylesheet">
-    <link href="theme.css" rel="stylesheet">
-    <link href="mobile-global.css" rel="stylesheet">
+<link href="theme.css" rel="stylesheet">
+<link href="mobile-select.css?v=20261016a" rel="stylesheet">
+<link href="mobile-global.css" rel="stylesheet">
     <link rel="preload" as="fetch" href="/noto-emoji/book.json?v=20260517b">
     <link rel="preload" as="fetch" href="/noto-emoji/pencil_write.json">
     <script>
@@ -150,7 +151,7 @@
                 <section class="entries-section entries-section--main" id="entriesMainSection" style="display: none;">
                     <div class="entries-toolbar">
                         <label class="visually-hidden" for="entriesMonthSelect">Month and year</label>
-                        <select id="entriesMonthSelect" class="entries-month-select" aria-label="Show entries for month"></select>
+                        <select id="entriesMonthSelect" class="entries-month-select" aria-label="Show entries for month" data-mobile-select="Month"></select>
                     </div>
                     <div class="month-header entries-month-header" id="entriesMonthHeader">
                         <i class="bi bi-calendar3" aria-hidden="true"></i>
@@ -411,7 +412,8 @@
     <script src="entry-view.js"></script>
     <script src="diari-security.js"></script>    <script src="diari-offline.js"></script>
     <script src="side-bar.js"></script>
-    <script src="diari-shell.js"></script>
-    <script src="entries.js"></script>
+<script src="diari-shell.js"></script>
+<script src="mobile-select.js?v=20261016a"></script>
+<script src="entries.js"></script>
 </body>
 </html>

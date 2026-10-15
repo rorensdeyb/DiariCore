@@ -12,8 +12,9 @@
     <link href="side-bar.css" rel="stylesheet">
     <link href="profile.css?v=20260915b" rel="stylesheet">
     <link href="password-live.css" rel="stylesheet">
-    <link href="theme.css?v=20260820d" rel="stylesheet">
-    <link href="mobile-global.css" rel="stylesheet">
+<link href="theme.css?v=20260820d" rel="stylesheet">
+<link href="mobile-select.css?v=20261016a" rel="stylesheet">
+<link href="mobile-global.css" rel="stylesheet">
     <script src="theme.js"></script>
     <link href="pwa.css" rel="stylesheet">
     <script src="pwa.js"></script>
@@ -423,7 +424,7 @@
                                     <span class="profile-account-field__label">Gender</span>
                                     <span class="profile-account-field__input-wrap">
                                         <i class="bi bi-gender-ambiguous profile-account-field__icon" aria-hidden="true"></i>
-                                        <select id="profileFieldGender" class="profile-account-field__input profile-account-field__select">
+                                        <select id="profileFieldGender" class="profile-account-field__input profile-account-field__select" data-mobile-select="Gender">
                                             <option value="Male">Male</option>
                                             <option value="Female">Female</option>
                                             <option value="Prefer not to say">Prefer not to say</option>
@@ -790,7 +791,8 @@
     <script src="pwa-notification-templates.js" data-diari-src="pwa-notification-templates.js"></script>
     <script src="pwa-web-push.js" data-diari-src="pwa-web-push.js"></script>
     <script src="pwa-notifications.js?v=20260915b" data-diari-src="pwa-notifications.js"></script>
-    <script src="pwa-profile-offline.js"></script>
-    <script src="profile.js?v=20260915c"></script>
+<script src="pwa-profile-offline.js"></script>
+<script src="mobile-select.js?v=20261016a"></script>
+<script src="profile.js?v=20260915c"></script>
 </body>
 </html>
