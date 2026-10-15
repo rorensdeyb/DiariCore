@@ -630,7 +630,8 @@
                     }
                     const rawText = data && data.text ? String(data.text).trim() : '';
                     const errText = data && data.error ? String(data.error) : '';
-                    return { ok: res.ok, status: res.status, success: Boolean(data && data.success), text: rawText, error: errText };
+                    const source = data && data.source ? String(data.source) : '';
+                    return { ok: res.ok, status: res.status, success: Boolean(data && data.success), text: rawText, error: errText, source: source };
                 }
 
                 async function tryOnDeviceTranscribe(reason) {
@@ -666,7 +667,9 @@
                         finalTranscript.value = server.text;
                         updateWordCountFromTranscript();
                         setTranscriptHint(
-                            'Transcribed with server AI! Edit any mistakes above before saving.'
+                            server.source === 'groq_whisper'
+                                ? 'Transcribed with Groq Whisper (fast)! Edit any mistakes above before saving.'
+                                : 'Transcribed with server AI! Edit any mistakes above before saving.'
                         );
                         return;
                     }

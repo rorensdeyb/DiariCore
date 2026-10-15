@@ -2855,11 +2855,25 @@ def api_voice_status():
         return auth_err
     import hf_speech
 
+    try:
+        import groq_speech
+
+        groq_configured = groq_speech.is_configured()
+        groq_model = os.environ.get("GROQ_SPEECH_MODEL", "whisper-large-v3-turbo")
+    except Exception:
+        groq_configured = False
+        groq_model = os.environ.get("GROQ_SPEECH_MODEL", "whisper-large-v3-turbo")
+
+    provider = "groq" if groq_configured else ("hf" if hf_speech.is_configured() else "on-device")
+
     return jsonify(
         {
             "success": True,
             "configured": hf_speech.is_configured(),
             "model": os.environ.get("HF_SPEECH_MODEL", "openai/whisper-large-v3"),
+            "groqConfigured": groq_configured,
+            "groqModel": groq_model,
+            "provider": provider,
             "onDeviceDefault": True,
         }
     ), 200
@@ -2887,6 +2901,21 @@ def api_voice_transcribe():
 
     content_type = (f.mimetype or "audio/webm").split(";")[0].strip()
     language_hint = (request.form.get("language") or "").strip().lower() or None
+
+    # Primary: Groq Whisper (fast, generous free tier). Fallback: HF Inference.
+    try:
+        import groq_speech
+
+        if groq_speech.is_configured():
+            text, err = groq_speech.transcribe_upload_bytes(data, content_type, language=language_hint)
+            if text is not None:
+                return jsonify({"success": True, "text": text, "source": "groq_whisper"}), 200
+            if err and groq_speech.is_no_speech_error(err):
+                return jsonify({"success": False, "error": err.split("NO_SPEECH: ", 1)[-1]}), 502
+            print(f"[voice/transcribe] Groq failed, trying HF fallback: {(err or '')[:200]}")
+    except Exception as ge:
+        print(f"[voice/transcribe] Groq path exception, trying HF fallback: {ge}")
+
     text, err = hf_speech.transcribe_upload_bytes(data, content_type, language=language_hint)
     if text is not None:
         return jsonify({"success": True, "text": text, "source": "whisper_ai"}), 200
