@@ -1431,9 +1431,11 @@ html.theme-dark .voice-tips-modal__list li {
         text-overflow: ellipsis;
     }
 
-    .mobile-header .save-btn {
-        flex-shrink: 0;
-        margin-left: auto;
+    /* Voice Entry: duplicate top Save button removed on mobile/PWA —
+       the bottom "Save Entry" action is the single save path. */
+    .page-voice-entry .mobile-header .save-btn,
+    .mobile-header #saveEntryBtn {
+        display: none !important;
     }
     
     .header-section {
