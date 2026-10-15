@@ -40,6 +40,41 @@
         closeOthers(inst);
         inst.panel.classList.add('show');
         inst.button.setAttribute('aria-expanded', 'true');
+        positionPanel(inst);
+        if (global.requestAnimationFrame) {
+            global.requestAnimationFrame(function () {
+                if (isOpen(inst)) positionPanel(inst);
+            });
+        }
+    }
+
+    /**
+     * Anchor the fixed panel under the button (or above it when there is no
+     * room below), clamped to the viewport with 12px margins. Re-run on
+     * scroll/resize while open since the anchor moves with the page.
+     */
+    function positionPanel(inst) {
+        try {
+            var rect = inst.button.getBoundingClientRect();
+            var vw = global.innerWidth || document.documentElement.clientWidth || 360;
+            var vh = global.innerHeight || document.documentElement.clientHeight || 640;
+            var width = Math.max(rect.width || 0, 240);
+            width = Math.min(width, vw - 24);
+            var left = Math.min(Math.max(rect.left || 0, 12), Math.max(12, vw - width - 12));
+            var gap = 8;
+            var top = (rect.bottom || 0) + gap;
+            inst.panel.style.left = left + 'px';
+            inst.panel.style.width = width + 'px';
+            inst.panel.style.top = Math.max(8, Math.min(top, vh - 120)) + 'px';
+            // Flip above the button when the panel would run off-screen.
+            var overflow = inst.panel.getBoundingClientRect().bottom - (vh - 8);
+            if (overflow > 0) {
+                var above = (rect.top || 0) - inst.panel.offsetHeight - gap;
+                if (above >= 8) inst.panel.style.top = above + 'px';
+            }
+        } catch (_) {
+            /* leave panel where CSS put it */
+        }
     }
 
     function closePanel(inst) {
@@ -53,7 +88,6 @@
 
     function rebuildList(inst) {
         var select = inst.select;
-        inst.pending = select.value;
         inst.list.innerHTML = '';
         var opts = [];
         try {
@@ -73,7 +107,7 @@
             var row = document.createElement('div');
             row.className = 'mselect-option';
             row.setAttribute('role', 'option');
-            var isActive = opt.value === inst.pending;
+            var isActive = opt.value === select.value;
             row.setAttribute('data-active', isActive ? 'true' : 'false');
             row.setAttribute('aria-selected', isActive ? 'true' : 'false');
 
@@ -87,13 +121,9 @@
 
             row.appendChild(box);
             row.appendChild(label);
+            // Auto-apply on tap (like the native select): commit + close.
             row.addEventListener('click', function () {
-                inst.pending = opt.value;
-                Array.prototype.forEach.call(inst.list.children, function (child) {
-                    var on = child === row;
-                    child.setAttribute('data-active', on ? 'true' : 'false');
-                    child.setAttribute('aria-selected', on ? 'true' : 'false');
-                });
+                commitValue(inst, opt.value);
             });
             inst.list.appendChild(row);
         });
@@ -109,14 +139,14 @@
         }
     }
 
-    function applySelection(inst) {
+    function commitValue(inst, value) {
         var select = inst.select;
         if (select.disabled) {
             closePanel(inst);
             return;
         }
-        if (inst.pending !== undefined && inst.pending !== select.value) {
-            select.value = inst.pending;
+        if (value !== select.value) {
+            select.value = value;
             var evt = null;
             try {
                 evt = new Event('change', { bubbles: true });
@@ -168,22 +198,10 @@
         var list = document.createElement('div');
         list.className = 'mselect-list';
 
-        var actions = document.createElement('div');
-        actions.className = 'mselect-actions';
-        var cancelBtn = document.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.className = 'mselect-cancel';
-        cancelBtn.textContent = 'Cancel';
-        var applyBtn = document.createElement('button');
-        applyBtn.type = 'button';
-        applyBtn.className = 'mselect-apply';
-        applyBtn.textContent = 'Apply';
-        actions.appendChild(cancelBtn);
-        actions.appendChild(applyBtn);
-
         panel.appendChild(heading);
         panel.appendChild(list);
-        panel.appendChild(actions);
+        // NOTE: the panel is fixed-positioned (see positionPanel) but stays
+        // in the wrapper DOM so outside-tap detection keeps working.
         wrap.appendChild(panel);
 
         var inst = {
@@ -193,7 +211,6 @@
             labelEl: labelEl,
             panel: panel,
             list: list,
-            pending: select.value,
             observer: null,
         };
 
@@ -237,23 +254,20 @@
             if (isOpen(inst)) closePanel(inst);
             else openPanel(inst);
         });
-        cancelBtn.addEventListener('click', function () {
-            closePanel(inst);
-        });
-        applyBtn.addEventListener('click', function () {
-            applySelection(inst);
-        });
         panel.addEventListener('keydown', function (ev) {
             if (ev.key === 'Escape') closePanel(inst);
         });
 
         if (!enhance.docBound) {
             enhance.docBound = true;
+            // Outside tap closes (panel is fixed, so test panel + button).
             document.addEventListener('pointerdown', function (ev) {
                 instances.forEach(function (other) {
-                    if (isOpen(other) && other.wrap && !other.wrap.contains(ev.target)) {
-                        closePanel(other);
-                    }
+                    if (!isOpen(other)) return;
+                    var t = ev.target;
+                    var insidePanel = other.panel && other.panel.contains(t);
+                    var insideButton = other.button && other.button.contains(t);
+                    if (!insidePanel && !insideButton) closePanel(other);
                 });
             });
             document.addEventListener('keydown', function (ev) {
@@ -263,6 +277,19 @@
                     });
                 }
             });
+            // Keep open panels anchored while the page moves.
+            var repositionOpen = function (ev) {
+                instances.forEach(function (other) {
+                    if (!isOpen(other)) return;
+                    // Internal option-list scrolling must not move the panel.
+                    if (ev && ev.target && other.panel && other.panel.contains(ev.target)) return;
+                    positionPanel(other);
+                });
+            };
+            global.addEventListener('resize', function () {
+                repositionOpen(null);
+            });
+            document.addEventListener('scroll', repositionOpen, true);
         }
 
         select.dataset.mselectEnhanced = '1';
@@ -312,8 +339,35 @@
         }
     }
 
+    // Pages render some selects after DOMContentLoaded (shell includes),
+    // so watch for late-added selects and enhance them without a refresh.
+    var domObserver = null;
+    function watchLateSelects() {
+        if (domObserver) return;
+        try {
+            domObserver = new MutationObserver(function (mutations) {
+                var found = false;
+                for (var i = 0; i < mutations.length && !found; i += 1) {
+                    var added = mutations[i].addedNodes || [];
+                    for (var j = 0; j < added.length && !found; j += 1) {
+                        var node = added[j];
+                        if (!node || node.nodeType !== 1) continue;
+                        if (node.matches && node.matches('select[data-mobile-select]')) found = true;
+                        else if (node.querySelector && node.querySelector('select[data-mobile-select]')) found = true;
+                    }
+                }
+                if (found && isMobile()) syncWithViewport();
+            });
+            if (document.body) domObserver.observe(document.body, { childList: true, subtree: true });
+            else document.addEventListener('DOMContentLoaded', watchLateSelects);
+        } catch (_) {
+            domObserver = null;
+        }
+    }
+
     function init() {
         syncWithViewport();
+        watchLateSelects();
         try {
             var mq = global.matchMedia(MOBILE_QUERY);
             if (mq) {

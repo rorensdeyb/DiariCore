@@ -67,18 +67,19 @@
         cursor: not-allowed;
     }
 
-    /* Popup card — mirrors .filter-menu from the entries Filter. */
+    /* Popup card — mirrors .filter-menu from the entries Filter.
+       Fixed positioning (set from the button rect in JS) so rounded parent
+       cards with overflow:hidden can never clip it. */
     .mselect-panel {
-        position: absolute;
-        top: calc(100% + 0.5rem);
-        left: 0;
-        right: 0;
+        position: fixed;
         background-color: var(--card-background);
         border: 1px solid var(--border-color);
         border-radius: 12px;
         box-shadow: var(--box-shadow-hover, 0 12px 32px rgba(31, 41, 36, 0.18));
-        z-index: 1000;
+        z-index: 2000;
         overflow: hidden;
+        min-width: 240px;
+        max-width: calc(100vw - 24px);
         opacity: 0;
         visibility: hidden;
         transform: translateY(-10px);
@@ -105,11 +106,12 @@
     .mselect-list {
         display: flex;
         flex-direction: column;
-        max-height: 15rem;
+        max-height: min(16rem, calc(100dvh - 220px));
         overflow-y: auto;
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
-        padding: 0.25rem 1.25rem;
+        touch-action: pan-y;
+        padding: 0.25rem 1.25rem 0.9rem;
     }
 
     .mselect-list::-webkit-scrollbar {
@@ -183,37 +185,4 @@
         line-height: 1.45;
     }
 
-    /* Footer — mirrors .filter-actions / .btn-clear / .btn-apply. */
-    .mselect-actions {
-        display: flex;
-        gap: 0.75rem;
-        padding: 1rem 1.25rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .mselect-cancel,
-    .mselect-apply {
-        flex: 1;
-        padding: 0.625rem 1rem;
-        border: none;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.2s ease;
-    }
-
-    .mselect-cancel {
-        background-color: var(--background-soft);
-        color: var(--text-secondary);
-    }
-
-    .mselect-apply {
-        background-color: var(--primary-color);
-        color: #fff;
-    }
-
-    .mselect-apply:active {
-        filter: brightness(0.94);
-    }
 }
