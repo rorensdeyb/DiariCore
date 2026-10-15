@@ -118,12 +118,23 @@
             chunk_length_s: 25,
             stride_length_s: 5,
         });
-        const text =
-            out && typeof out.text === 'string'
-                ? out.text.trim()
-                : out && out.chunks && out.chunks[0] && out.chunks[0].text
-                  ? String(out.chunks[0].text).trim()
-                  : '';
+        let text = '';
+        if (out && typeof out.text === 'string' && out.text.trim()) {
+            text = out.text.trim();
+        } else if (out && Array.isArray(out.chunks) && out.chunks.length) {
+            // Join ALL chunks (31s+ recordings produce many). Old code only
+            // kept chunks[0], dropping most of the speech.
+            text = out.chunks
+                .map(function (ch) {
+                    if (!ch) return '';
+                    if (typeof ch === 'string') return ch;
+                    if (typeof ch.text === 'string') return ch.text;
+                    return '';
+                })
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
         return text;
     }
 

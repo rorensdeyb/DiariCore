@@ -120,6 +120,46 @@ def transcribe_upload_bytes(data: bytes, content_type: str, language: Optional[s
     model_id = HF_SPEECH_MODEL or "openai/whisper-large-v3-turbo"
     clean_ct = (content_type or "audio/webm").split(";")[0].strip() or "audio/webm"
 
+    def _credit_error_message(status: int, body: str) -> Optional[str]:
+        low = (body or "").lower()
+        credit_hints = (
+            "insufficient",
+            "credit",
+            "quota",
+            "exceeded",
+            "payment required",
+            "billing",
+            "free tier",
+            "monthly included",
+        )
+        if status == 402 or any(h in low for h in credit_hints):
+            return (
+                "Hugging Face inference credits are exhausted (HTTP %s). "
+                "The app will try free on-device transcription instead. "
+                "To re-enable server AI, add a new token with credits via "
+                "Railway Variables (HF_API_TOKEN) or Admin Settings." % status
+            )
+        return None
+
+    def _status_error(status: int, body: str) -> Tuple[Optional[str], bool]:
+        """Return (error_message, retryable)."""
+        snippet = (body or "")[:300]
+        print(f"[hf_speech] router HTTP {status}: {snippet}")
+        credit_msg = _credit_error_message(status, body)
+        if credit_msg:
+            return credit_msg, False
+        if status == 401:
+            return "Hugging Face token unauthorized (401). Please verify token permissions include 'Inference'.", False
+        if status == 403:
+            return "Hugging Face token forbidden (403) for this model. Check token permissions or model access.", False
+        if status == 404:
+            return f"Speech model '{model_id}' not found (404) on the inference router.", False
+        if status == 429:
+            return "Transcription is rate-limited right now (429). The app will try free on-device transcription instead.", True
+        if status in (500, 502, 503, 504):
+            return "", True  # retryable; caller retries once then falls through
+        return f"Transcription router returned HTTP {status}. The app will try free on-device transcription instead.", True
+
     # 1. Primary: Direct high-speed HTTP call via Hugging Face serverless router (1-2s response)
     try:
         import httpx
@@ -138,7 +178,7 @@ def transcribe_upload_bytes(data: bytes, content_type: str, language: Optional[s
             if text:
                 return text, None
             return None, "It seems like you didn't talk during the recording. No words were transcribed — please try again."
-        elif resp.status_code == 503:
+        elif resp.status_code in (500, 502, 503, 504):
             time.sleep(2.0)
             # retry once on warm-up
             with httpx.Client(timeout=httpx.Timeout(25.0, connect=10.0)) as client:
@@ -148,15 +188,25 @@ def transcribe_upload_bytes(data: bytes, content_type: str, language: Optional[s
                 if text:
                     return text, None
                 return None, "It seems like you didn't talk during the recording. No words were transcribed — please try again."
-        elif resp.status_code == 401:
-            return None, "Hugging Face token unauthorized (401). Please verify token permissions include 'Inference'."
+        if resp.status_code != 200:
+            try:
+                body_text = resp.text or ""
+            except Exception:
+                body_text = ""
+            err_msg, _retryable = _status_error(resp.status_code, body_text)
+            if err_msg:
+                # Non-retryable (credits/auth) or informative: surface immediately.
+                # Mark credit errors so the client knows to use the free on-device path.
+                if "credits are exhausted" in err_msg or "rate-limited" in err_msg:
+                    return None, "CREDITS_EXHAUSTED: " + err_msg
+                return None, err_msg
+            # else: transient 5xx already retried -> fall through to InferenceClient
     except Exception as e:
         print(f"[hf_speech] Direct HTTP call exception: {e}")
 
     # 2. Secondary fallback via InferenceClient
     try:
         from huggingface_hub import InferenceClient
-        from huggingface_hub.errors import HfHubHTTPError
         client = InferenceClient(token=token)
         out = client.automatic_speech_recognition(audio=data, model=model_id)
         text = _extract_text(out)
@@ -164,8 +214,17 @@ def transcribe_upload_bytes(data: bytes, content_type: str, language: Optional[s
             return text, None
         return None, "It seems like you didn't talk during the recording. No words were transcribed — please try again."
     except Exception as exc:
+        msg = str(exc)
         print(f"[hf_speech] InferenceClient fallback error: {exc}")
+        credit_msg = _credit_error_message(0, msg)
+        if credit_msg:
+            return None, "CREDITS_EXHAUSTED: " + credit_msg
+        low = msg.lower()
+        if "401" in low or "unauthorized" in low:
+            return None, "Hugging Face token unauthorized (401). Please verify token permissions include 'Inference'."
+        if "429" in low or "too many" in low or "rate" in low:
+            return None, "CREDITS_EXHAUSTED: Transcription is rate-limited right now. The app will try free on-device transcription instead."
 
-    return None, "Transcription service temporarily unavailable. Please try speaking again."
+    return None, "CREDITS_EXHAUSTED: Transcription service temporarily unavailable. The app will try free on-device transcription instead — no new token required for that path."
 
 

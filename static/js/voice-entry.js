@@ -552,21 +552,54 @@
                 return 'Automatic transcription is unavailable in this browser. Type your entry below.';
             }
 
+            function isSilenceArtifactText(rawText) {
+                const normText = String(rawText || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                return (
+                    normText === '' ||
+                    normText === 'so' ||
+                    normText === 'you' ||
+                    normText === 'thankyou' ||
+                    normText === 'thanksforwatching' ||
+                    normText === 'subtitlesby' ||
+                    normText === 'theend' ||
+                    normText === 'bye' ||
+                    normText === 'music' ||
+                    normText === 'silence'
+                );
+            }
+
+            function isCreditsError(errText, status) {
+                const s = String(errText || '').toLowerCase();
+                return (
+                    status === 402 ||
+                    status === 429 ||
+                    s.indexOf('credits_exhausted') !== -1 ||
+                    s.indexOf('credit') !== -1 ||
+                    s.indexOf('quota') !== -1 ||
+                    s.indexOf('temporarily unavailable') !== -1 ||
+                    s.indexOf('rate-limited') !== -1 ||
+                    s.indexOf('rate limited') !== -1
+                );
+            }
+
             async function transcribeRecordingBlobIfNeeded(blob, forceAi) {
                 if (!blob || blob.size < 200) return;
                 lastAudioBlob = blob;
                 if (!finalTranscript) return;
 
-                const currentText = finalTranscript.value.trim();
-                if (!forceAi && currentText.length >= 10) return;
+                const existingText = finalTranscript.value.trim();
+                if (!forceAi && existingText.length >= 10) return;
+                // Preserve live-caption text: server/on-device results replace it
+                // only when they produce real speech, never wipe it on failure.
+                const fallbackText = existingText;
 
-                setTranscriptHint('⚡ Transcribing audio with AI (Whisper)…');
+                setTranscriptHint('Transcribing audio… trying server AI first, then free on-device backup if needed.');
                 if (aiTranscribeBtn) {
                     aiTranscribeBtn.disabled = true;
                     aiTranscribeBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Transcribing…';
                 }
 
-                try {
+                async function tryServerTranscribe() {
                     const formData = new FormData();
                     const ext = extensionForMime(blob.type || 'audio/webm');
                     formData.append('audio', blob, `recording.${ext}`);
@@ -589,43 +622,119 @@
                         headers: headers,
                         body: formData,
                     });
-
-                    const data = await res.json();
+                    let data = null;
+                    try {
+                        data = await res.json();
+                    } catch (_) {
+                        data = null;
+                    }
                     const rawText = data && data.text ? String(data.text).trim() : '';
-                    const normText = rawText.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const isSilenceArtifact =
-                        normText === '' ||
-                        normText === 'so' ||
-                        normText === 'you' ||
-                        normText === 'thankyou' ||
-                        normText === 'thanksforwatching' ||
-                        normText === 'subtitlesby' ||
-                        normText === 'theend' ||
-                        normText === 'bye' ||
-                        normText === 'music' ||
-                        normText === 'silence';
+                    const errText = data && data.error ? String(data.error) : '';
+                    return { ok: res.ok, status: res.status, success: Boolean(data && data.success), text: rawText, error: errText };
+                }
 
-                    if (res.ok && data.success && rawText && !isSilenceArtifact) {
-                        finalTranscript.value = rawText;
+                async function tryOnDeviceTranscribe(reason) {
+                    let deviceText = '';
+                    try {
+                        if (reason) setTranscriptHint(reason);
+                        deviceText = String((await transcribeOnDevice(blob)) || '').trim();
+                    } catch (deviceErr) {
+                        console.warn('On-device transcription failed:', deviceErr);
+                        deviceText = '';
+                    }
+                    if (deviceText && !isSilenceArtifactText(deviceText)) {
+                        finalTranscript.value = deviceText;
                         updateWordCountFromTranscript();
                         setTranscriptHint(
-                            '⚡ Transcribed with Whisper AI! Edit any mistakes above before saving.'
+                            'Transcribed on your device (free, no server credits used). Edit any mistakes above before saving.'
+                        );
+                        return true;
+                    }
+                    return false;
+                }
+
+                try {
+                    let server = null;
+                    try {
+                        server = await tryServerTranscribe();
+                    } catch (e) {
+                        console.warn('Server transcription request failed, trying on-device:', e);
+                        server = { ok: false, status: 0, success: false, text: '', error: String((e && e.message) || e || 'network error') };
+                    }
+
+                    if (server && server.ok && server.success && server.text && !isSilenceArtifactText(server.text)) {
+                        finalTranscript.value = server.text;
+                        updateWordCountFromTranscript();
+                        setTranscriptHint(
+                            'Transcribed with server AI! Edit any mistakes above before saving.'
                         );
                         return;
                     }
 
-                    // Silence or no speech detected
-                    finalTranscript.value = '';
-                    updateWordCountFromTranscript();
+                    // Server gave no usable speech: decide between true silence vs service failure.
+                    const serverFailed = !server || !server.ok || !server.success;
+                    const serverErr = server ? server.error : '';
+                    const serverStatus = server ? server.status : 0;
+
+                    if (serverFailed && isCreditsError(serverErr, serverStatus)) {
+                        console.warn('Server transcription unavailable, falling back to free on-device:', serverErr || serverStatus);
+                        const deviceOk = await tryOnDeviceTranscribe(
+                            'Server AI is out of credits/unavailable — transcribing on your device for free instead…'
+                        );
+                        if (deviceOk) return;
+                        // Both failed: keep any live-caption text, don't wipe it.
+                        if (fallbackText) {
+                            finalTranscript.value = fallbackText;
+                            updateWordCountFromTranscript();
+                        }
+                        setTranscriptHint(
+                            'Server AI is unavailable (credits/rate limit) and on-device transcription found no clear speech. ' +
+                            'If you spoke, try Chrome/Edge with mic allowed, speak 2–3+ seconds, or type below. No new token is required for on-device mode.'
+                        );
+                        return;
+                    }
+
+                    if (serverFailed && serverStatus === 401) {
+                        if (fallbackText) {
+                            finalTranscript.value = fallbackText;
+                            updateWordCountFromTranscript();
+                        }
+                        setTranscriptHint('Please log in again to use server transcription — or type your entry below.');
+                        return;
+                    }
+
+                    // Any other server failure (or silence): try free on-device before giving up.
+                    if (serverFailed || !server.text || isSilenceArtifactText(server.text)) {
+                        const deviceOk = await tryOnDeviceTranscribe(
+                            serverFailed
+                                ? 'Server transcription failed — trying free on-device transcription…'
+                                : 'Double-checking with free on-device transcription…'
+                        );
+                        if (deviceOk) return;
+                    }
+
+                    // True no-speech case: restore live-caption text if there was any.
+                    if (fallbackText) {
+                        finalTranscript.value = fallbackText;
+                        updateWordCountFromTranscript();
+                        if (fallbackText.length >= 10) return;
+                    }
                     const defaultNoSpeechMsg = "It seems like you didn't talk during the recording. No words were transcribed — please try again.";
-                    const err = data.error || (res.status === 401 ? 'Please log in to use AI transcription.' : defaultNoSpeechMsg);
-                    console.warn('Server transcription note:', err);
-                    setTranscriptHint(err || defaultNoSpeechMsg);
+                    console.warn('Server transcription note:', serverErr || serverStatus);
+                    setTranscriptHint(serverErr && serverErr.length < 300 ? serverErr : defaultNoSpeechMsg);
                 } catch (e) {
-                    console.error('AI transcription request failed:', e);
-                    finalTranscript.value = '';
-                    updateWordCountFromTranscript();
-                    setTranscriptHint("It seems like you didn't talk during the recording. No words were transcribed — please try again.");
+                    console.error('Transcription request failed:', e);
+                    if (fallbackText) {
+                        finalTranscript.value = fallbackText;
+                        updateWordCountFromTranscript();
+                        if (fallbackText.length >= 10) return;
+                    }
+                    // Last resort: on-device even after an unexpected error.
+                    try {
+                        const deviceOk = await tryOnDeviceTranscribe('Trying free on-device transcription…');
+                        if (deviceOk) return;
+                    } catch (_) {}
+                    setTranscriptHint("Transcription failed. Check mic access, speak 2–3+ seconds, use Chrome/Edge — or type your entry below.");
                 } finally {
                     if (aiTranscribeBtn) {
                         aiTranscribeBtn.disabled = false;

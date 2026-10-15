@@ -2890,7 +2890,13 @@ def api_voice_transcribe():
     text, err = hf_speech.transcribe_upload_bytes(data, content_type, language=language_hint)
     if text is not None:
         return jsonify({"success": True, "text": text, "source": "whisper_ai"}), 200
-    status = 503 if err and "warming" in err.lower() else 502
+    err_low = (err or "").lower()
+    if err and ("credits_exhausted" in err_low or "credits are exhausted" in err_low or "insufficient" in err_low or "quota" in err_low):
+        status = 402
+    elif err and "warming" in err_low:
+        status = 503
+    else:
+        status = 502
     return jsonify({"success": False, "error": err or "Transcription failed."}), status
 
 
