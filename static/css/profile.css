@@ -4425,22 +4425,21 @@ html.theme-dark .pwa-offline-model-status__bar {
 
     body.page-profile .profile-preferences-stack .notifications-item--reminder-time .time-input {
         width: auto !important;
-        max-width: 6.85rem !important;
-        min-width: 5.5rem;
+        max-width: 10.5rem !important;
+        min-width: 9rem;
         box-sizing: border-box;
-        padding-left: 0.45rem !important;
-        padding-right: 0.4rem !important;
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
     }
 
     html.diari-pwa-standalone body.page-profile .profile-preferences-stack .notifications-item--reminder-time .time-input::-webkit-calendar-picker-indicator,
     html[data-diari-pwa='standalone'] body.page-profile .profile-preferences-stack .notifications-item--reminder-time .time-input::-webkit-calendar-picker-indicator {
         cursor: pointer;
         opacity: 0.92;
-        margin-inline-end: 0.55rem;
-        margin-left: 0;
-        position: relative;
-        right: 6px;
-        transform: translateX(-10px);
+        margin: 0 0 0 0.35rem;
+        position: static;
+        right: auto;
+        transform: none;
     }
 
     @media (max-width: 768px) {
