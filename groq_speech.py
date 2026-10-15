@@ -97,12 +97,15 @@ def transcribe_upload_bytes(
             "Authorization": f"Bearer {token}",
             "User-Agent": "DiariCore/1.0",
         }
+        # NOTE: `data` values must be plain strings — tuple values here made
+        # httpx emit a malformed duplicate `model` part, which Groq rejects
+        # with 400 "only one model is allowed".
         form_fields: dict = {
-            "model": (None, model_id),
-            "response_format": (None, "json"),
+            "model": model_id,
+            "response_format": "json",
         }
         if lang:
-            form_fields["language"] = (None, lang)
+            form_fields["language"] = lang
         files = {"file": (filename, data, clean_ct)}
         with httpx.Client(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
             resp = client.post(GROQ_ENDPOINT, headers=headers, data=form_fields, files=files)
