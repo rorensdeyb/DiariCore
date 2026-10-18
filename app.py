@@ -227,6 +227,29 @@ def _user_is_configured_admin(user_row: dict) -> bool:
     return bool(user_email) and user_email == admin_email
 
 
+def _session_is_admin() -> bool:
+    """True when the current session may use the admin surface.
+
+    Re-checks the live DB user against DIARI_ADMIN_EMAIL instead of trusting the
+    flag stamped at login time, so a still-valid cookie keeps admin access even
+    if the variable was added/changed after login, or the session was created by
+    an older deploy.
+    """
+    if session.get("is_admin"):
+        return True
+    uid = session.get("user_id")
+    if uid is None:
+        return False
+    try:
+        user_row = db.get_user_by_id(int(uid))
+    except Exception:
+        return False
+    if _user_is_configured_admin(user_row):
+        session["is_admin"] = True
+        return True
+    return False
+
+
 def _establish_user_session(user_id: int) -> str:
     session["user_id"] = int(user_id)
     token = secrets.token_urlsafe(32)
@@ -699,6 +722,19 @@ def ensure_db():
             push_scheduler.start(worker_id=os.getpid())
         except Exception:
             pass
+
+
+@app.before_request
+def refresh_admin_session():
+    """Re-derive admin rights for admin routes so they survive redeploys that
+    changed DIARI_ADMIN_EMAIL or rotated SECRET_KEY. Cheap: only admin paths
+    touch the DB, and the result is cached back into the session."""
+    path = request.path
+    if not (path == "/admin" or path.startswith("/admin.") or path.startswith("/api/admin")):
+        return None
+    if not session.get("is_admin"):
+        _session_is_admin()
+    return None
 
 
 @app.route("/api/health")
@@ -2382,7 +2418,7 @@ def api_admin_logout():
 
 @app.route("/admin")
 def admin_page():
-    if not session.get("is_admin"):
+    if not _session_is_admin():
         return abort(403)
     return send_from_directory(TEMPLATES_DIR, "admin.html")
 
@@ -3247,7 +3283,7 @@ def api_internal_push_dispatch():
 def static_files(filename):
     if filename.startswith("api/"):
         abort(404)
-    if filename == "admin.html" and not session.get("is_admin"):
+    if filename == "admin.html" and not _session_is_admin():
         abort(403)
 
     safe = os.path.normpath(filename)
