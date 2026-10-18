@@ -2422,20 +2422,47 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Check auth status
-    function checkAuthStatus() {
+    async function checkAuthStatus() {
         const user = JSON.parse(localStorage.getItem('diariCoreUser') || 'null');
-        if (user && user.isLoggedIn) {
-            const currentPage = window.location.pathname.split('/').pop();
-            if (currentPage === 'index.html' || currentPage === '' || currentPage === 'login.html') {
-                if (user.isAdmin) {
-                    window.location.href = 'admin.html';
-                    return;
-                }
-                window.location.href = 'dashboard.html';
-            }
+        if (!user || !user.isLoggedIn) return;
+        const currentPage = window.location.pathname.split('/').pop();
+        if (!(currentPage === 'index.html' || currentPage === '' || currentPage === 'login.html')) {
+            return;
         }
+        /* Trust the live server, not the cached identity: after a redeploy or an
+           expired session localStorage can still say "admin" while the session
+           cookie is gone, which used to bounce the login page straight to a 403
+           admin page. Only redirect once /api/user/me confirms a real session. */
+        let serverUser = null;
+        try {
+            const res = await fetch('api/user/me?dc=' + Date.now(), {
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                serverUser = (data && data.user) || null;
+            }
+        } catch (e) {
+            serverUser = null;
+        }
+        if (!serverUser) {
+            try {
+                localStorage.removeItem('diariCoreUser');
+                if (window.DiariSecurity && typeof window.DiariSecurity.clearUserScopedLocalData === 'function') {
+                    window.DiariSecurity.clearUserScopedLocalData();
+                }
+            } catch (e) {}
+            return;
+        }
+        if (serverUser.isAdmin) {
+            window.location.href = 'admin.html';
+            return;
+        }
+        window.location.href = 'dashboard.html';
     }
-    
+
     checkAuthStatus();
 
     const signUpFieldIds = [
